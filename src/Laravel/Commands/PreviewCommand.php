@@ -6,8 +6,12 @@ namespace Quittio\Laravel\Commands;
 
 use InvalidArgumentException;
 use Quittio\Laravel\Support\Preview;
+use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
 
+/**
+ * @internal
+ */
 #[AsCommand(name: 'quittio:preview')]
 final class PreviewCommand extends QuittioCommand
 {
@@ -34,10 +38,13 @@ final class PreviewCommand extends QuittioCommand
         }
 
         $target = $this->stringOption('output') ?? $this->laravel->storagePath('app/quittio/preview/'.$scenario.'.'.$format);
-        if (! is_dir(dirname($target))) {
-            mkdir(dirname($target), 0775, true);
+        try {
+            $target = $result->core()->save($target);
+        } catch (RuntimeException $e) {
+            $this->components->error($e->getMessage());
+
+            return self::FAILURE;
         }
-        file_put_contents($target, $format === 'pdf' ? $result->pdf() : $result->html());
 
         $this->components->info(sprintf('Preview written to %s', $target));
 

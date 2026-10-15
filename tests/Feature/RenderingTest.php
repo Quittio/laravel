@@ -30,6 +30,8 @@ use Quittio\Core\Validation\ValidationLevel;
 use Quittio\Core\Validation\ValidationMessage;
 use Quittio\Core\Validation\ValidationResult;
 use Quittio\Core\Validation\ValidationSubject;
+use Quittio\Laravel\Events\DocumentRendered;
+use Quittio\Laravel\Events\DocumentRendering;
 use Quittio\Laravel\Events\InvoiceRendered;
 use Quittio\Laravel\Events\InvoiceRendering;
 use Quittio\Laravel\Events\InvoiceValidated;
@@ -38,6 +40,7 @@ use Quittio\Laravel\Events\MandatoryFieldMissing;
 use Quittio\Laravel\Facades\Quittio;
 use Quittio\Laravel\Jobs\RenderInvoice;
 use Quittio\Laravel\QuittioManager;
+use Quittio\Laravel\Rendering\PendingDocument;
 use Quittio\Laravel\Rendering\RenderedDocument;
 use Quittio\Laravel\Rendering\RenderedInvoice;
 use Quittio\Laravel\Seller;
@@ -62,7 +65,7 @@ it('renders ZUGFeRD with the Blade template', function () {
 it('shows the same content as the plain PHP template', function (string $scenario) {
     $invoice = Scenarios::make($scenario)->build();
     $blade = Quittio::make($invoice)->format('html')->validate(false)->render()->html();
-    $php = Quittio::core()->withTemplateEngine(new PhpTemplateEngine)->render($invoice, new RenderOptions(formats: ['html'], validation: 'warn'))->html();
+    $php = Quittio::core()->setTemplateEngine(new PhpTemplateEngine)->render($invoice, new RenderOptions(formats: ['html'], validation: 'warn'))->html();
     $text = static fn (string $html): string => trim((string) preg_replace('/\s+/u', ' ', html_entity_decode(strip_tags((string) preg_replace(['#<style.*?</style>#s', '#<(br|/div|/p|/td)[^>]*>#'], ['', ' '], $html)))));
 
     expect($text($blade))->toBe($text($php));
@@ -182,6 +185,20 @@ it('stores on the configured disk by default', function () {
     Storage::disk('archive')->assertExists('2026/Rechnung_RE-2026-0042.pdf');
 });
 
+it('throws when a disk does not store the file', function () {
+    // A directory in the place of the file: the local disk reports the failed write by returning false.
+    $root = sys_get_temp_dir().'/quittio-disk-'.bin2hex(random_bytes(4));
+    mkdir($root.'/RE-2026-0042.xml', 0775, true);
+    config()->set('filesystems.disks.broken', ['driver' => 'local', 'root' => $root, 'throw' => false]);
+
+    try {
+        Quittio::make(invoice())->format('cii')->render()->save('broken', 'RE-2026-0042.xml');
+    } finally {
+        rmdir($root.'/RE-2026-0042.xml');
+        rmdir($root);
+    }
+})->throws(RuntimeException::class, 'Unable to store "RE-2026-0042.xml" on the disk "broken"');
+
 it('renders in the queue', function () {
     Queue::fake();
     Quittio::make(invoice())->format('zugferd')->queue()->save('invoices', 'queued/');
@@ -245,6 +262,27 @@ it('renders documents', function () {
         ->and($pdf->pdf())->toStartWith('%PDF-');
 });
 
+it('dispatches events and passes options for documents', function () {
+    Event::fake([DocumentRendering::class, DocumentRendered::class]);
+    $quote = DocumentBuilder::quote()->number('AN-1')->issueDate('2026-10-01')
+        ->seller(Seller::fromConfig())
+        ->buyer(fn ($b) => $b->name('Kunde AG')->address('Weg 1', '54321', 'Beispielstadt', 'DE'))
+        ->line(fn ($l) => $l->name('Beratung')->quantity(2, 'HUR')->netPrice('100.00')->vat(VatCategory::StandardRate, '19'));
+    PendingDocument::macro('german', fn () => $this->locale('de'));
+
+    $marked = Quittio::document($quote)->german()->htmlOnly()->render()->html();
+    $plain = Quittio::document($quote)->german()->htmlOnly()->option('fold_marks', false)->render()->html();
+
+    expect(substr_count($marked, 'class="mark"'))->toBeGreaterThan(0)
+        ->and(substr_count($plain, 'class="mark"'))->toBe(0);
+    Event::assertDispatched(DocumentRendering::class, fn (DocumentRendering $event): bool => $event->document->number === 'AN-1' && $event->options->locale === 'de');
+    Event::assertDispatchedTimes(DocumentRendered::class, 2);
+
+    Quittio::fake();
+    Quittio::document($quote)->htmlOnly()->render();
+    Event::assertDispatchedTimes(DocumentRendered::class, 3);
+});
+
 it('fakes rendering in tests', function () {
     $fake = Quittio::fake();
     Quittio::assertNothingRendered();
@@ -287,7 +325,8 @@ it('fakes the format and profile choice of a real run', function () {
     Quittio::flush();
     expect(Quittio::make(invoice())->render()->format())->toBe('zugferd')
         ->and($fake->rendered())->toHaveCount(9);
-    Event::assertNothingDispatched();
+    // The fake dispatches the events of a real run.
+    Event::assertDispatchedTimes(InvoiceRendered::class, 9);
 });
 
 it('fakes documents and records them', function () {

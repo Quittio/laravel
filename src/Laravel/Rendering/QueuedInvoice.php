@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace Quittio\Laravel\Rendering;
 
 use Illuminate\Container\Container;
-use Illuminate\Contracts\Bus\Dispatcher;
 use Illuminate\Contracts\Config\Repository;
 use Quittio\Core\Data\InvoiceData;
 use Quittio\Core\Rendering\RenderOptions;
 use Quittio\Laravel\Jobs\RenderInvoice;
+use Quittio\Laravel\QuittioManager;
 
 /**
  * Pending queued render; dispatching happens on save().
@@ -17,6 +17,7 @@ use Quittio\Laravel\Jobs\RenderInvoice;
 final readonly class QueuedInvoice
 {
     public function __construct(
+        private QuittioManager $manager,
         private InvoiceData $data,
         private RenderOptions $options,
         private ?string $connection = null,
@@ -33,9 +34,12 @@ final readonly class QueuedInvoice
         $job = new RenderInvoice(json_encode($this->data->toSnapshot(), JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE), $this->options, $disk, $path);
         $job->onConnection(is_string($connection) ? $connection : null);
         $job->onQueue(is_string($queue) ? $queue : null);
+        // Inside a database transaction: dispatch only after the commit, so that a rollback does
+        // not leave a rendered invoice behind.
+        if ($config->get('quittio.queue.after_commit', true) !== false) {
+            $job->afterCommit();
+        }
 
-        $container->make(Dispatcher::class)->dispatch($job);
-
-        return $job;
+        return $this->manager->queueInvoice($job);
     }
 }

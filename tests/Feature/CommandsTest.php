@@ -47,6 +47,22 @@ it('renders an invoice from JSON', function () {
     expect(file_get_contents($dir.'/Rechnung_RE-2026-0042.xml'))->toContain('xrechnung_3.0');
 });
 
+it('creates the output directory and reports files that cannot be written', function () {
+    $dir = tempDirectory();
+    file_put_contents($dir.'/invoice.json', Scenarios::make('simple')->build()->toJson());
+
+    $this->artisan('quittio:render', ['--json' => $dir.'/invoice.json', '--format' => 'cii', '--output' => $dir.'/new/2026/'])
+        ->assertSuccessful();
+    $this->artisan('quittio:render', ['--json' => $dir.'/invoice.json', '--format' => 'cii', '--output' => $dir.'/invoice.json/invoice.xml'])
+        ->expectsOutputToContain('Unable to create the directory')
+        ->assertFailed();
+    $this->artisan('quittio:preview', ['--format' => 'html', '--output' => $dir.'/invoice.json/preview.html'])
+        ->expectsOutputToContain('Unable to create the directory')
+        ->assertFailed();
+
+    expect(glob($dir.'/new/2026/*.xml'))->toHaveCount(1);
+});
+
 it('reports invalid JSON invoices', function () {
     $dir = tempDirectory();
     file_put_contents($dir.'/invoice.json', Scenarios::make('simple')->number('')->build()->toJson());
@@ -66,7 +82,30 @@ it('validates files', function () {
         ->assertSuccessful();
     $this->artisan('quittio:validate', ['file' => $dir.'/valid.pdf', '--profile' => 'xrechnung'])->assertFailed();
     $this->artisan('quittio:validate', ['file' => $dir.'/invalid.xml'])->assertFailed();
-    $this->artisan('quittio:validate', ['file' => $dir.'/missing.xml'])->assertFailed();
+    $this->artisan('quittio:validate', ['file' => $dir.'/missing.xml'])->assertExitCode(2);
+});
+
+it('tells files that cannot be validated from invalid files', function () {
+    $dir = tempDirectory();
+    file_put_contents($dir.'/valid.pdf', Quittio::make(Scenarios::make('simple')->build())->format('zugferd')->render()->pdf());
+    file_put_contents($dir.'/text.xml', '<note>no invoice</note>');
+
+    $this->artisan('quittio:validate', ['file' => $dir.'/valid.pdf', '--profile' => 'unknown-profile'])
+        ->expectsOutputToContain('unknown-profile')
+        ->assertExitCode(2);
+    $this->artisan('quittio:validate', ['file' => $dir.'/text.xml'])->assertExitCode(2);
+    $this->artisan('quittio:validate', ['file' => $dir.'/missing.xml', '--json' => true])
+        ->expectsOutputToContain('"error": "The file')
+        ->assertExitCode(2);
+});
+
+it('reports the expected profile in JSON', function () {
+    $dir = tempDirectory();
+    file_put_contents($dir.'/valid.pdf', Quittio::make(Scenarios::make('simple')->build())->format('zugferd')->render()->pdf());
+
+    $this->artisan('quittio:validate', ['file' => $dir.'/valid.pdf', '--profile' => 'xrechnung', '--json' => true])
+        ->expectsOutputToContain('"expectedProfile": "xrechnung",'.PHP_EOL.'    "profileMismatch": true')
+        ->assertFailed();
 });
 
 it('validates with all configured settings of the KoSIT and veraPDF drivers', function () {

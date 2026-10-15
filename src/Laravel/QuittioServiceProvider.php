@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Quittio\Laravel;
 
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Contracts\Foundation\CachesRoutes;
@@ -30,6 +31,7 @@ use Quittio\Laravel\Commands\RenderCommand;
 use Quittio\Laravel\Commands\SchemasDownloadCommand;
 use Quittio\Laravel\Commands\ValidateCommand;
 use Quittio\Laravel\Contracts\InvoiceDefaults;
+use Quittio\Laravel\Http\AuthorizePreview;
 use Quittio\Laravel\Support\LaravelTranslator;
 use Quittio\Laravel\Support\Preview;
 use ReflectionClass;
@@ -72,8 +74,9 @@ final class QuittioServiceProvider extends ServiceProvider
         $this->bridgeTranslations();
         // InvoiceData::fromSnapshot() uses the configured upcasters.
         SnapshotUpcasterChain::useDefault($this->app->make(SnapshotUpcasterChain::class));
-        // Lines without ->vat() use quittio.defaults.vat or the default of the seller's country.
-        InvoiceBuilder::useDefaultVat(fn (?string $country, bool $smallBusiness): ?TaxPreset => $this->app->make(QuittioManager::class)->defaultVat($country, $smallBusiness));
+        // Lines without ->vat() use quittio.defaults.vat or the default of the seller's country,
+        // read from the current application (under Octane the one of the request).
+        InvoiceBuilder::useDefaultVat(static fn (?string $country, bool $smallBusiness): ?TaxPreset => Container::getInstance()->make(QuittioManager::class)->defaultVat($country, $smallBusiness));
         $this->registerPublishing();
         $this->registerPreviewRoutes();
 
@@ -134,9 +137,11 @@ final class QuittioServiceProvider extends ServiceProvider
     }
 
     /**
-     * Registers /_quittio/preview when enabled (default: local environment only).
+     * Registers /_quittio/preview when enabled (default: local environment only). Requests
+     * pass the configured middleware, the gate "viewQuittioPreview" (AuthorizePreview) and
+     * the throttle of quittio.preview.throttle.
      */
-    public function registerPreviewRoutes(): void
+    private function registerPreviewRoutes(): void
     {
         $config = $this->app->make(Repository::class);
         $enabled = $config->get('quittio.preview.enabled');
@@ -147,11 +152,17 @@ final class QuittioServiceProvider extends ServiceProvider
 
         $path = $config->get('quittio.preview.path', '_quittio/preview');
         $middleware = $config->get('quittio.preview.middleware', ['web']);
+        $middleware = is_array($middleware) ? array_values(array_filter($middleware, is_string(...))) : [];
+        $middleware[] = AuthorizePreview::class;
+        $throttle = $config->get('quittio.preview.throttle', '30,1');
+        if (is_string($throttle) && $throttle !== '') {
+            $middleware[] = 'throttle:'.$throttle;
+        }
 
         $router = $this->app->make(Router::class);
         $router->group([
             'prefix' => is_string($path) ? $path : '_quittio/preview',
-            'middleware' => is_array($middleware) ? array_values(array_filter($middleware, is_string(...))) : [],
+            'middleware' => $middleware,
         ], self::packagePath('routes/preview.php'));
         $router->getRoutes()->refreshNameLookups();
     }

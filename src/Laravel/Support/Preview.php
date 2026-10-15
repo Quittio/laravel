@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Quittio\Laravel\Support;
 
 use Illuminate\Contracts\View\Factory;
-use InvalidArgumentException;
+use Quittio\Core\Exceptions\InvalidArgumentException;
 use Quittio\Core\I18n\Translations;
 use Quittio\Core\Testing\Scenarios;
 use Quittio\Laravel\QuittioManager;
@@ -19,6 +19,8 @@ use Quittio\Laravel\Templates\BladeTemplateEngine;
  * accepts (see BladeTemplateEngine: "default", quittio.pdf.template, the shipped views under
  * "quittio::templates." and the views of quittio.pdf.templates, never partials) are rendered,
  * never file paths or other application views.
+ *
+ * @internal
  */
 final readonly class Preview
 {
