@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 use Illuminate\Support\Facades\Storage;
 use Quittio\Core\Builder\InvoiceBuilder;
+use Quittio\Core\Calculation\DeclaredAmountsMode;
+use Quittio\Core\Calculation\En16931Calculator;
+use Quittio\Core\Calculation\TotalsCalculator;
 use Quittio\Core\Countries\ResolvedCountries;
 use Quittio\Core\Data\InvoiceData;
 use Quittio\Core\Data\Party\BuyerParty;
@@ -15,6 +18,9 @@ use Quittio\Core\Rendering\RenderOptions;
 use Quittio\Core\Serialization\Snapshots\SnapshotUpcasterChain;
 use Quittio\Core\Serialization\Snapshots\SnapshotVersionException;
 use Quittio\Core\Testing\Scenarios;
+use Quittio\Core\Validation\Drivers\PhpRulesDriver;
+use Quittio\Core\Validation\Rules\CallbackRule;
+use Quittio\Core\Validation\Severity;
 use Quittio\Core\Validation\ValidationLevel;
 use Quittio\Laravel\Facades\Quittio;
 use Quittio\Laravel\Jobs\RenderInvoice;
@@ -188,3 +194,50 @@ it('reads the environment variables of 0.1.0 when the new names are not set', fu
     expect([$old['defaults']['country'], $old['validation']['mode'], $old['validation']['mandatory_field_guard'], $old['storage']['disk'], $old['preview']['enabled']])->toBe(['AT', 'warn', 'log', 's3', false])
         ->and([$new['defaults']['country'], $new['validation']['mode'], $new['validation']['mandatory_field_guard'], $new['storage']['disk'], $new['preview']['enabled']])->toBe(['CH', 'off', 'off', 'public', true]);
 });
+
+it('maps the rule overrides and refuses unknown rule codes', function () {
+    config()->set('quittio.validation.rules', ['disabled' => ['DE-USTG-15'], 'severity' => ['DE-USTG-08' => 'warning']]);
+    $driver = Quittio::core()->validators()[0];
+
+    expect($driver)->toBeInstanceOf(PhpRulesDriver::class)
+        ->and($driver instanceof PhpRulesDriver ? $driver->overrides()->disabled : null)->toBe(['DE-USTG-15'])
+        ->and($driver instanceof PhpRulesDriver ? $driver->overrides()->severities : null)->toBe(['DE-USTG-08' => Severity::Warning]);
+
+    config()->set('quittio.validation.rules.disabled', ['DE-USTG-99']);
+    expect(fn () => Quittio::core())->toThrow(ConfigurationException::class, 'DE-USTG-99');
+});
+
+it('replaces a rule with an extension of type rule', function () {
+    $rule = CallbackRule::l7('DE-USTG-15', 'Own check', fn () => null, 'quittio-de');
+    Quittio::extend('rule', 'DE-USTG-15', fn () => $rule);
+    $driver = Quittio::core()->validators()[0];
+
+    expect($driver instanceof PhpRulesDriver ? $driver->overrides()->replacements : null)->toBe(['DE-USTG-15' => $rule])
+        ->and(Quittio::core()->ruleCodes())->toContain('DE-USTG-15');
+});
+
+it('maps the calculation policy and an own calculator', function () {
+    expect(ConfigMapper::toCore(new Settings(['calculation' => ['declared_amounts' => 'reject']]), false)->calculation->declaredAmounts)->toBe(DeclaredAmountsMode::Reject);
+
+    app()->instance(CountingCalculator::class, new CountingCalculator);
+    config()->set('quittio.calculation.calculator', CountingCalculator::class);
+    Quittio::edit((new En16931Calculator)->calculate(Scenarios::simple()->build()))->build();
+
+    expect(Quittio::core()->calculator())->toBe(app(CountingCalculator::class))
+        ->and(app(CountingCalculator::class)->calls)->toBeGreaterThan(0);
+
+    config()->set('quittio.calculation.calculator', stdClass::class);
+    expect(fn () => Quittio::core())->toThrow(ConfigurationException::class, 'TotalsCalculator');
+});
+
+final class CountingCalculator implements TotalsCalculator
+{
+    public int $calls = 0;
+
+    public function calculate(InvoiceData $invoice): InvoiceData
+    {
+        $this->calls++;
+
+        return (new En16931Calculator)->calculate($invoice);
+    }
+}

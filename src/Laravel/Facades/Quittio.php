@@ -12,6 +12,7 @@ use Quittio\Laravel\Testing\QuittioFake;
 /**
  * @method static \Quittio\Laravel\Rendering\PendingInvoice make(\Quittio\Core\Data\InvoiceData|\Quittio\Core\Contracts\ProvidesInvoiceData|\Quittio\Core\Builder\InvoiceBuilder $data)
  * @method static \Quittio\Laravel\Builder\RenderableInvoiceBuilder invoice() a new invoice with the seller of config/quittio.php (or the current issuer of quittio/managed)
+ * @method static \Quittio\Laravel\Builder\RenderableInvoiceBuilder edit(\Quittio\Core\Data\InvoiceData $data) continues existing invoice data with the configured calculator
  * @method static \Quittio\Laravel\Builder\RenderableDocumentBuilder quote()
  * @method static \Quittio\Laravel\Builder\RenderableDocumentBuilder orderConfirmation()
  * @method static \Quittio\Laravel\Builder\RenderableDocumentBuilder deliveryNote()
@@ -23,6 +24,7 @@ use Quittio\Laravel\Testing\QuittioFake;
  * @method static \Quittio\Laravel\Rendering\RenderedInvoice renderInvoice(\Quittio\Core\Data\InvoiceData $invoice, \Quittio\Core\Rendering\RenderOptions $options) the render run behind PendingInvoice::render(), with events
  * @method static \Quittio\Laravel\Rendering\RenderedDocument renderDocument(\Quittio\Core\Documents\DocumentData $document, \Quittio\Core\Rendering\RenderOptions $options) the render run behind PendingDocument::render()
  * @method static \Quittio\Laravel\Jobs\RenderInvoice queueInvoice(\Quittio\Laravel\Jobs\RenderInvoice $job) dispatches the job of PendingInvoice::queue()->save()
+ * @method static \Quittio\Laravel\Jobs\RenderDocument queueDocument(\Quittio\Laravel\Jobs\RenderDocument $job)
  * @method static \Quittio\Core\Validation\ValidationResult check(\Quittio\Core\Data\InvoiceData $invoice, \Quittio\Core\Rendering\RenderOptions $options)
  * @method static \Quittio\Core\Rendering\PreparedInvoice prepare(\Quittio\Core\Data\InvoiceData $invoice, \Quittio\Core\Rendering\RenderOptions $options)
  * @method static \Quittio\Core\Reading\ReadResult read(string $content) content (bytes) of an XML or PDF e-invoice, never a path
@@ -48,10 +50,12 @@ use Quittio\Laravel\Testing\QuittioFake;
  * @method static void assertNothingRendered()
  * @method static void assertQueued(?callable $callback = null)
  * @method static void assertNothingQueued()
+ * @method static void assertDocumentQueued(?callable $callback = null)
  * @method static void assertDocumentRendered(?callable $callback = null)
  * @method static list<\Quittio\Laravel\Rendering\RenderedInvoice> rendered()
  * @method static list<\Quittio\Laravel\Rendering\RenderedDocument> documents()
  * @method static list<\Quittio\Laravel\Jobs\RenderInvoice> queued()
+ * @method static list<\Quittio\Laravel\Jobs\RenderDocument> queuedDocuments()
  *
  * @see QuittioManager
  * @see QuittioFake

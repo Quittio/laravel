@@ -46,8 +46,8 @@ return [
         // without payment terms (->dueInDays()); never for credit notes. null = no due date.
         'due_days' => 14,
 
-        // Tax preset of invoice lines without ->vat(), e.g. 'de.reduced_7' for a bookshop.
-        // null = the standard rate of the seller's country (Germany: 'de.standard_19');
+        // Tax preset of invoice lines without ->vat(), e.g. 'de.reduced' for a bookshop.
+        // null = the standard rate of the seller's country (Germany: 'de.standard');
         // small businesses (seller.small_business) get the small business exemption.
         'vat' => env('QUITTIO_DEFAULT_VAT'),
     ],
@@ -248,6 +248,17 @@ return [
         // 'off'. null = 'exception' outside production, 'log' in production.
         'mandatory_field_guard' => env('QUITTIO_MANDATORY_FIELD_GUARD', env('QUITTIO_GUARD')),
 
+        // Single PHP rules by the code of their messages; a trailing * matches by prefix.
+        // 'disabled' switches rules off, 'severity' changes the severity of their findings
+        // (error, warning, info), e.g. ['DE-USTG-15' => 'warning']. Official EN 16931 and Peppol
+        // rules (BR-*, PEPPOL-*) need 'allow_official' => true. Own implementations replace
+        // a rule with Quittio::extend('rule', 'DE-USTG-15', fn () => new MyRule).
+        'rules' => [
+            'disabled' => [],
+            'severity' => [],
+            'allow_official' => false,
+        ],
+
         'drivers' => [
 
             // KoSIT validator (level 'kosit'), the official validator for XRechnung and Peppol.
@@ -301,6 +312,27 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Calculation
+    |--------------------------------------------------------------------------
+    | Invoices continued with Quittio::edit() or InvoiceBuilder::from(), and cancellations,
+    | carry the declared amounts of the original, which another system may have rounded
+    | differently (e.g. per line).
+    */
+    'calculation' => [
+
+        // 'keep' = keep declared amounts within the tolerances of EN 16931, so that foreign
+        // rounding is reversed exactly; 'recalculate' = always recalculate; 'reject' = throw
+        // when declared amounts are outside the tolerances. Every mode reports replaced amounts
+        // (QUITTIO-DECLARED-AMOUNTS).
+        'declared_amounts' => env('QUITTIO_DECLARED_AMOUNTS', 'keep'),
+
+        // Own calculator (class implementing Quittio\Core\Calculation\TotalsCalculator, resolved
+        // from the container); null = the EN 16931 calculator with the mode above.
+        'calculator' => null,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Snapshots
     |--------------------------------------------------------------------------
     */
@@ -310,6 +342,9 @@ return [
         // stored invoices (queued jobs, quittio/managed) of older Quittio versions up to date.
         // Only needed after an update that changes the data model.
         'upcasters' => [],
+
+        // The same for stored documents (queued quotes, reminders and other documents).
+        'document_upcasters' => [],
     ],
 
     /*

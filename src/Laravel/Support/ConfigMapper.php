@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Quittio\Laravel\Support;
 
+use Quittio\Core\Calculation\CalculationPolicy;
 use Quittio\Core\Config;
 use Quittio\Core\Data\Presentation\Colors;
 use Quittio\Core\Data\Presentation\Presentation;
 use Quittio\Core\Exceptions\ConfigurationException;
+use Quittio\Core\Validation\RuleOverrides;
 use Quittio\Core\Validation\ValidationLevel;
 use Quittio\Core\View\MandatoryFieldGuard;
 use Quittio\Core\View\ViewModelFactory;
@@ -76,11 +78,13 @@ final class ConfigMapper
             blockOnWarnings: $settings->bool('validation.block_on_warnings', false),
             // Laravel default: the messages follow the language of the application.
             validationLocale: $settings->nullableString('validation.locale') ?? 'app',
+            rules: RuleOverrides::fromArray($settings->array('validation.rules')),
             maxXmlBytes: $settings->int('reader.max_xml_bytes', 10 * 1024 * 1024),
             maxPdfBytes: $settings->int('reader.max_pdf_bytes', 25 * 1024 * 1024),
             maxDecompressedBytes: $settings->int('reader.max_decompressed_bytes', 50 * 1024 * 1024),
             dueDays: self::dueDays($settings->get('defaults.due_days')),
             cancellationStrategy: $settings->nullableString('corrections.cancellation_strategy'),
+            calculation: CalculationPolicy::fromArray($settings->array('calculation')),
         );
     }
 
