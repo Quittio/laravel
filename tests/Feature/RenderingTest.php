@@ -262,6 +262,35 @@ it('renders documents', function () {
         ->and($pdf->pdf())->toStartWith('%PDF-');
 });
 
+it('renders bonus statements with the seller of the configuration (section 17 (4) UStG)', function () {
+    $statement = Quittio::bonusStatement()->number('BO-1')->issueDate('2027-01-20')->locale('de')
+        ->buyer(fn ($b) => $b->name('Handel AG')->address('Ring 1', '54321', 'Beispielstadt', 'DE'))
+        ->bonusPeriod('2026-01-01', '2026-12-31')
+        ->bonusAgreement('der Bonusvereinbarung vom 15.01.2026')
+        ->bonusOnRevenue('100000.00', '3', VatCategory::StandardRate, '19');
+
+    $html = Quittio::document($statement)->htmlOnly()->render()->html();
+    $pdf = Quittio::document($statement)->render()->pdf();
+
+    expect($html)->toContain('<h1>Bonusabrechnung</h1>')
+        ->and($html)->toContain('vom 01.01.2026 bis 31.12.2026 gemäß der Bonusvereinbarung vom 15.01.2026 (§ 17 Abs. 4 UStG).')
+        ->and($html)->toContain('3.000,00')
+        ->and($html)->toContain('570,00')
+        ->and($pdf)->toStartWith('%PDF');
+});
+
+it('returns the notices of a document with the rendered result', function () {
+    $reminder = Quittio::paymentReminder(1)->number('M-1')->issueDate('2026-10-01')->locale('de')
+        ->buyer(fn ($b) => $b->name('Kunde AG')->address('Weg 1', '54321', 'Beispielstadt', 'DE'))
+        ->openItem('RE-1', '2026-08-01', '1190.00', '2026-08-15')
+        ->flatRate('RE-1')
+        ->fee('Mahngebühr', '5.00');
+
+    $result = Quittio::document($reminder)->htmlOnly()->render();
+
+    expect(array_map(static fn ($n): string => $n->code, $result->notices()))->toBe(['QUITTIO-DUNNING-FLAT-RATE-FEES']);
+});
+
 it('dispatches events and passes options for documents', function () {
     Event::fake([DocumentRendering::class, DocumentRendered::class]);
     $quote = DocumentBuilder::quote()->number('AN-1')->issueDate('2026-10-01')
